@@ -1,0 +1,8 @@
+﻿__pycache__/
+*.py[cod]
+predictions/
+outputs/
+data/
+dataset/
+*.npz
+!requirements.txt
