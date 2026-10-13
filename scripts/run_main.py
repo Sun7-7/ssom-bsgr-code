@@ -1,4 +1,4 @@
-"""Run SSOM-BSGR on one or more windows of a PDW record.
+"""Run GR-SSOM on one or more windows of a PDW record.
 
 Example:
     python scripts/run_main.py --pdw data/PDW_data.csv --window 10000 \
@@ -13,6 +13,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from threadpoolctl import threadpool_limits
 
 import numpy as np
 import pandas as pd
@@ -32,6 +33,8 @@ def load_record(path: Path, label_column: str) -> tuple[np.ndarray, np.ndarray]:
     missing = [c for c in needed if c not in df.columns]
     assert not missing, f'{path.name} is missing columns {missing}'
     assert label_column in df.columns, f'{path.name} has no {label_column!r} column'
+    if not np.isfinite(df[needed].to_numpy(float)).all() or df[label_column].isna().any():
+        raise ValueError('Descriptors must be finite and labels must not be missing')
     return df[needed].to_numpy(float), df[label_column].to_numpy()
 
 
@@ -49,6 +52,8 @@ def main() -> None:
     p.add_argument('--device', default=None, choices=[None, 'cuda', 'cpu'])
     p.add_argument('--out', type=Path, default=None, help='directory for predictions')
     args = p.parse_args()
+    if args.window < 60 or args.count < 1 or args.start < 0 or args.start_step < 0:
+        p.error("window >= 60, count >= 1, start/stride >= 0 required")
 
     a_all, y_all = load_record(args.pdw, args.label_column)
     print(f'{args.pdw.name}: {len(a_all)} pulses, '
@@ -57,14 +62,14 @@ def main() -> None:
 
     rows = []
     for i in range(args.count):
-        s = args.start + i * (args.start_step or 0)
+        s = args.start + i * (args.start_step or args.window)
         a, y = a_all[s:s + args.window], y_all[s:s + args.window]
         assert len(a) == args.window, f'window {s} only has {len(a)} pulses'
         res = run_window(a, y, start=s, seed=args.seed, device=args.device)
         m = res['metrics']
         rows.append(dict(window_start=s, K_true=int(len(np.unique(y))),
                          K_initial=res['K_initial'], K_pred=int(m['K_pred']),
-                         route=res['route'], operations=res['operations'],
+                         route=res['route'], operations=res['operations'], seed=args.seed, encoder_updates=res['encoder_updates'],
                          **{k: float(m[k]) for k in METRIC_KEYS}))
         print(f'  window {s}: ACC {m["ACC"]:.4f}  ARI {m["ARI"]:.4f}  '
               f'NMI {m["NMI"]:.4f}  K {m["K_pred"]} (true {len(np.unique(y))})  '
@@ -76,7 +81,7 @@ def main() -> None:
                                 initial=res['initial'])
 
     frame = pd.DataFrame(rows)
-    summary = frame[METRIC_KEYS + ['K_abs_error']].mean().to_dict()
+    summary = frame[METRIC_KEYS].mean().to_dict()
     print('\nmean over windows: ' + '  '.join(
         f'{k} {summary[k]:.4f}' for k in METRIC_KEYS))
     if args.out:
@@ -89,4 +94,5 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    main()
+    with threadpool_limits(limits=1):
+        main()

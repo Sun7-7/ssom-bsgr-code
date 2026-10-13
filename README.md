@@ -1,85 +1,49 @@
-# SSOM-BSGR — reference implementation
+# GR-SSOM：雷达脉冲分选主方法
 
-Code accompanying *Neurodynamic Spiking Self-Organizing Maps with Bidirectional
-Structural Granularity Refinement for Radar Pulse Deinterleaving*.
+这是投稿期的最小公开实现，包含固定随机脉冲编码器、30×30 SSOM、未知K初始化和NSPR样本分区细化，以及独立仿真PDW。沿用原仓库地址和历史，替换旧协议与入口。
 
-It contains the proposed method and the ablation entry points. It runs on a PDW
-record with the column layout described in [`docs/data_format.md`](docs/data_format.md).
+可从PDW运行主方法并输出指标和预测。真实采集数据、八种基线、消融、参数搜索、内部预测、稿件与审计材料暂不公开，因此仿真结果不能替代论文真实记录的数值。
 
-## What is in this repository
+## 安装与运行
 
-```
-src/
-  spiking_som.py   spiking encoder + adaptive self-organizing map (frozen projection)
-  data_utils.py    descriptor preprocessing and feature helpers
-  refinement.py    bidirectional structural granularity refinement (merge / split / gate)
-  pipeline.py      the full pipeline for one window: features -> GMM grid -> SSOM -> BSGR
-  metrics.py       clustering metrics (ACC / ARI / NMI / F1) with Hungarian matching
-  energy.py        arithmetic energy proxy used by the cost accounting
-scripts/
-  run_main.py      run the method on one or more windows of a record
-  run_ablation.py  component ablation: SSOM, GMM, support, merge, split, gate
-  smoke_test.py    end-to-end check on synthetic data; needs no external dataset
-```
-
-## What is deliberately not in this repository
-
-* **The eight comparison baselines.** Their implementations and per-window
-  results are withheld while the manuscript is under review.
-* **Hyperparameter search code and ranges.**
-* **The radar records.** They are not redistributed here. The numbers reported in
-  the paper were produced on a withheld corpus.
-* **Per-run result artifacts** (predictions and summary tables).
-
-The method code is complete: everything needed to run SSOM-BSGR on a PDW record
-is in `src/`, and the frozen thresholds of the refinement stage are the ones the
-paper reports.
-
-## Install and run
+建议Python 3.11；CPU可运行，安装支持CUDA的PyTorch后自动使用GPU。
 
 ```bash
+python -m venv .venv
+# Windows: .venv/Scripts/activate
+# Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
-
-python scripts/run_main.py --pdw path/to/PDW.csv --window 10000 --start 10000 \
-    --count 6 --seed 42 --out predictions/
-
-python scripts/run_ablation.py --pdw path/to/PDW.csv --window 10000 --windows 6 \
-    --out ablation/
-
-python scripts/smoke_test.py     # end-to-end check, no dataset required
+python scripts/smoke_test.py
+python scripts/run_simulation.py
 ```
 
-`run_main.py` prints ACC, ARI, NMI, F1 and the absolute emitter-count error per
-window and writes the predicted labels as `.npz`. CUDA is used when available and
-the code falls back to CPU otherwise.
+默认3个场景(K=4/6/8)、每场景2个10000脉冲窗口、种子42/123/456，共18次。输出 outputs/simulation：逐次ACC/ARI/NMI/Macro-F1/K绝对误差、场景均值、NPZ预测、运行环境和来源哈希。再次运行须使用新输出目录。
 
-## Method summary
+```bash
+python scripts/run_simulation.py --seeds 42 --device cpu --out outputs/cpu_check
+python scripts/run_main.py --pdw data/simulation/synthetic_k6.csv --window 10000 --count 2 --seed 123 --out outputs/single_record
+python scripts/generate_simulation.py --out outputs/regenerated_data
+```
 
-1. **Features.** RF, PW, PA and the sine/cosine pair of DOA are standardized. TOA
-   is excluded: absolute arrival time does not identify an emitter within a
-   window.
-2. **Initial hypotheses.** A grid of tied-covariance Gaussian mixtures over
-   K = 4..20; K is the first point where the BIC gain per sample drops below 8% of
-   the early median gain. Choosing K this way keeps labels and downstream metrics
-   out of the model-order decision.
-3. **Representation.** The descriptors in the order (RF, PW, PA, DOA) drive a
-   frozen spiking encoder and an adaptive 30 x 30 self-organizing map. Each pulse
-   is assigned its best-matching unit.
-4. **Refinement.** Two corrections are proposed for the current partition — merge
-   component pairs that are close in descriptor space *and* overlap on the map, or
-   split a component better described by two Gaussians — and a gate selects which
-   to apply. The map overlap is what distinguishes this from distance-only
-   refinement: fragments of one emitter tend to occupy the same map region even
-   when their descriptor means have drifted apart.
+run_main默认步长等于窗口长度；--start指定起点，--start-step指定其他步长。--seed实际控制SSOM初始化和细化随机性；GMM种子按窗口起点和K确定。输入要求TOA/RF/PW/DOA/PA/Label，标签只用于评分。见 [数据格式](docs/data_format.md)。
 
-## Caveat on the K-selection rule
+## 方法与协议
 
-The 8% gain ratio is frozen from the source records. On a record whose BIC gain
-profile differs substantially it can over-segment; the smoke test shows this on a
-synthetic record with widely separated emitters. Re-calibrating the ratio on a new
-corpus is reasonable, but any change means the pipeline is no longer the one the
-paper evaluates.
+1. RF/PW/PA和DOA的sin/cos构建标准化特征，不使用TOA选择分区。
+2. K=4..20的tied-GMM，增益为相邻模型总对数似然之差。阈值为全部16个增益最大值的10%，从第三个增益起选首次低于阈值的左端K，否则取20。这不是BIC最小化或旧8%早期中位数规则。
+3. RF/PW/PA/DOA驱动固定随机脉冲编码器；SSOM地图训练600步。固定编码器不代表地图零训练。
+4. NSPR结合连续距离和BMU支持分布选择合并或拆分；操作对象是样本分区，不合并、删除或重训地图神经元。
 
-## License
+[配置说明](configs/main.json)描述源码固定协议；改JSON本身不改变计算。依赖版本和CPU/GPU可能影响浮点结果，每次批量运行记录版本。
 
-MIT, see [`LICENSE`](LICENSE).
+## 目录
+
+| 目录 | 内容 |
+|---|---|
+| src | 主方法，pipeline.py为入口，refinement.py为NSPR |
+| scripts | 单记录运行、批量仿真、仿真生成、冒烟核验 |
+| configs | 冻结主方法协议说明 |
+| data/simulation | 独立合成CSV和SHA清单 |
+| docs | 数据格式与投稿期公开范围 |
+
+src/energy.py仅因模型依赖保留计数接口，本公开运行不输出能耗结论，运算代理不能当成硬件实测。仿真使用固定独立范围和高斯扰动，不读取私有数据或经验分布，可用公开生成器和种子重新生成核对SHA。公开边界见 [发布范围](docs/release_scope.md)。许可MIT，见 [LICENSE](LICENSE)。

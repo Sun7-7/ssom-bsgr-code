@@ -1,0 +1,26 @@
+{
+  "seed": 20261013,
+  "generator": "independent_gaussian_pdw_v1",
+  "private_data_inputs": false,
+  "scope": "software execution demonstration; not paper metrics",
+  "records": [
+    {
+      "file": "synthetic_k4.csv",
+      "pulses": 20000,
+      "emitters": 4,
+      "sha256": "7b0ebb7a359344ce3ac297274da26958e6159af907717e8af6b52b99570f2372"
+    },
+    {
+      "file": "synthetic_k6.csv",
+      "pulses": 20000,
+      "emitters": 6,
+      "sha256": "d71d5e2495860e714ac892f3706927ed063619fe19531a9242673bb666a403f5"
+    },
+    {
+      "file": "synthetic_k8.csv",
+      "pulses": 20000,
+      "emitters": 8,
+      "sha256": "8d56c89f0dde18eaaca83b93a3c62e303e223f3dcb9b6fa8a62497dd6291822a"
+    }
+  ]
+}

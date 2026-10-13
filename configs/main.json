@@ -1,0 +1,8 @@
+{
+  "method": "GR-SSOM",
+  "refinement": "NSPR",
+  "initialization": {"K_min": 4, "K_max": 20, "covariance_type": "tied", "n_init": 5, "max_iter": 400, "reg_covar": 0.00001, "random_state": "5100 + start + 31*K", "reference": "max(max(all gains), 1e-9)", "gain_fraction": 0.10, "selection": "first i>=2 below threshold; K=4+i; else 20"},
+  "representation": {"map": [30, 30], "iterations": 600, "input_order": ["RF", "PW", "PA", "DOA"], "preprocess": "legacy_zscore_clip_minmax_l2", "update_rule": "mass_normalized", "encoder": "random_frozen"},
+  "nspr": {"merge_distance": 0.5, "merge_overlap": 0.2, "close_bypass": 0.08, "max_merges": 12, "split_gain": 2.0, "max_splits": 2, "gate_distance": 0.35, "gate_overlap": 0.30},
+  "note": "Protocol description; frozen implementation constants live in src/pipeline.py and src/refinement.py. Editing this file alone does not change computation."
+}

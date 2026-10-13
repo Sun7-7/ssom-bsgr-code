@@ -1,51 +1,9 @@
-# Input format
+# PDW数据格式
 
-## PDW record
+UTF-8 CSV，首行 TOA,RF,PW,DOA,PA,Label。每行一个脉冲，按TOA递增。前五列为有限数值；Label为整数发射源ID，只用于评分。自定义标签列用 --label-column 指定。
 
-A CSV with one row per intercepted pulse. The columns used by the pipeline are:
+仿真TOA为任意时间单位，RF对应MHz范围、PW对应微秒范围、DOA为度、PA为任意幅度。范围用于程序演示，不表示真实设备参数。自有记录须保持单位一致。
 
-| Column | Meaning | Unit |
-|---|---|---|
-| `TOA`  | time of arrival | ns, non-decreasing |
-| `RF`   | carrier frequency | MHz |
-| `PW`   | pulse width | µs |
-| `DOA`  | direction of arrival | degrees, in (−90, 90] |
-| `PA`   | pulse amplitude | dB |
-| `Label`| true emitter identity | integer, used only for scoring |
+按行号分窗，不按时间分窗；窗口不足会报错。--count 2 --window 10000 默认读取起点0和10000的两个窗口。缺列、NaN/Inf或非数值必须先清理。
 
-`TOA` is read but not used as a feature: within an observation window absolute
-arrival time does not identify an emitter, and the paper reports the TOA
-perturbation as a no-op control. The remaining four descriptors enter the model.
-
-The label column name can be changed with `--label-column`. Labels are never
-passed to a fit call; they are used only after the partition is produced, to
-score it.
-
-## Windows
-
-The paper evaluates **10000-pulse windows**. `run_main.py` slices the record from
-`--start` and can step through several consecutive windows with `--count` and
-`--start-step`; `run_ablation.py` uses `--windows` consecutive windows of the same
-length.
-
-Every window is processed independently: feature standardization, the GMM grid,
-the SSOM fit and the refinement all run from scratch, so no statistic from one
-window enters another.
-
-## Missing or spurious observations
-
-The robustness study perturbs the descriptors before feature construction and
-does not require a different input format: missing pulses are dropped from the
-window, and spurious pulses are appended as extra rows with `Label = -1`, which
-the scoring treats as an extra class and the reported metrics handle through the
-rejection convention in `metrics.evaluate_clustering_with_rejection`.
-
-## Output
-
-`run_main.py --out DIR` writes
-
-* `window{start}_seed{seed}.npz` with `y`, `pred`, `bmu` and `initial`;
-* `summary.csv` and `summary.json` with the per-window metrics and their mean.
-
-`run_ablation.py --out DIR` writes the per-window and averaged component-ablation
-tables.
+ACC使用Hungarian一对一匹配，F1是对应Macro-F1，K_abs_error是当前窗口预测源数与真实源数的绝对差。
